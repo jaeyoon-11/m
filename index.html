@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upcycle Acappella</title>
+<style>
+  :root {
+    --u: calc(min(100vw, 100vh * 819 / 529) / 100);
+  }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #fff;
+    display: flex; justify-content: center; align-items: flex-start;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Noto Sans KR", sans-serif;
+  }
+
+  #back {
+    position: fixed; left: 0; top: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  #grad {
+    position: fixed; left: 0; top: 0; width: 100%;
+    height: calc(var(--u) * 7.94);
+    background: linear-gradient(to bottom, #0066FF, rgba(0, 102, 255, 0));
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #stage {
+    position: relative; z-index: 1;
+    width: calc(var(--u) * 100);
+    height: calc(var(--u) * 64.59);
+    user-select: none; -webkit-user-select: none;
+  }
+
+  #logo {
+    position: absolute;
+    left: calc(var(--u) * 3.5);
+    top: calc(var(--u) * 1.9);
+    width: calc(var(--u) * 10);
+    height: auto;
+    object-fit: contain;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  #bar {
+    position: absolute;
+    left: calc(var(--u) * 7);
+    top: calc(var(--u) * 54.3);
+    width: calc(var(--u) * 86.1);
+    height: calc(var(--u) * 8.6);
+    background: #0066FF;
+    border-radius: calc(var(--u) * 1.6);
+    box-sizing: border-box;
+    padding-left: calc(var(--u) * 1.3);
+    display: flex; align-items: center;
+    z-index: 10;
+  }
+  #slots { display: flex; gap: calc(var(--u) * 0.9); }
+  .slot {
+    width: calc(var(--u) * 6);
+    height: calc(var(--u) * 6.8);
+    background: #fff;
+    border-radius: calc(var(--u) * 1);
+    display: flex; align-items: center; justify-content: center;
+    box-sizing: border-box;
+  }
+  .slot svg { width: calc(var(--u) * 2.8); height: calc(var(--u) * 2.8); }
+  .slot img { display: block; object-fit: contain; pointer-events: none; }
+  .slot.pop { animation: pop .35s ease-out; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  #act {
+    position: absolute;
+    right: calc(var(--u) * 3.2);
+    top: 50%; transform: translateY(-50%);
+    width: calc(var(--u) * 4.8); height: calc(var(--u) * 4.8);
+    padding: 0; border: 0; background: none; cursor: pointer;
+    display: block;
+  }
+  #act svg { width: 100%; height: 100%; display: block; }
+
+  .item {
+    position: absolute;
+    transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
+    transform-origin: center;
+    height: auto;
+    object-fit: contain;
+    cursor: pointer;
+    touch-action: none;
+    -webkit-user-drag: none;
+    user-select: none;
+    z-index: 20;
+  }
+  .item.fixed { cursor: default; }
+  .item.anim {
+    transition: left .45s ease, top .45s ease, width .45s ease,
+                transform .45s ease, opacity .45s ease;
+  }
+  .item.anim.slow { transition-duration: .9s; }
+  .item.fade { transition: opacity .6s ease; }
+</style>
+</head>
+<body>
+
+<img id="back" src="back.png" alt="">
+
+<div id="grad"></div>
+
+<div id="stage">
+  <img id="logo" src="logo.png" alt="Upcycle Acappella 로고">
+
+  <div id="bar">
+    <div id="slots"></div>
+    <button id="act" aria-label="재생"></button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const DEFS = [
+    { id: 'trash', x: 12.0, y: 58.0, w: 24.0, rot: 18,  fixed: true },
+    { id: 'pet',   x: 35.0, y: 27.0, w: 11.0,  rot: 14,  snd: ['pets.mp3'] },
+    { id: 'foil',  x: 58.0, y: 32.0, w: 21.0, rot: 18,  snd: ['foils.mp3'] },
+    { id: 'bag',   x: 86.0, y: 29.0, w: 18.5, rot: 24,   snd: ['bags.mp3'] },
+    { id: 'pbag',  x: 43.0, y: 62.0, w: 13.0, rot: -5,  snd: ['pbags.mp3'] },
+    { id: 'can',   x: 71.0, y: 64.0, w: 12.5, rot: -24, snd: ['cans.mp3'], orbitW: 9.5 }
+  ];
+  const MAX_BOX = 11;
+
+  const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="#fff"/></svg>';
+  const ICON_RETRY = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M17.73 9.48A7 7 0 1 1 11.39 6.53L15.4 6.5"/><path d="M12.6 3.7L15.6 6.5L12.6 9.3"/></svg>';
+  const ICON_PLUS = '<svg viewBox="0 0 24 24"><path d="M12 3.5v17M3.5 12h17" stroke="#0066FF" stroke-width="2.4" stroke-linecap="round"/></svg>';
+
+  const stage = document.getElementById('stage');
+  const bar = document.getElementById('bar');
+  const slotsEl = document.getElementById('slots');
+  const act = document.getElementById('act');
+
+  let mode = 'edit';
+  let gen = 0;
+  let raf = 0;
+  let seqCancel = null;
+  const order = [];
+
+  function playSound(srcs, onDone) {
+    let i = 0, cur = null, dead = false;
+    const next = () => {
+      if (dead) return;
+      if (i >= srcs.length) { onDone && onDone(); return; }
+      const a = new Audio(srcs[i++]);
+      cur = a;
+      let handled = false;
+      const fail = () => { if (handled || dead) return; handled = true; next(); };
+      a.addEventListener('ended', () => { if (handled || dead) return; handled = true; onDone && onDone(); });
+      a.addEventListener('error', fail);
+      const p = a.play();
+      if (p && p.catch) p.catch(fail);
+    };
+    next();
+    return () => { dead = true; if (cur) cur.pause(); };
+  }
+
+  const items = DEFS.map(d => {
+    const el = new Image();
+    el.className = 'item' + (d.fixed ? ' fixed' : '');
+    el.alt = d.id;
+    el.draggable = false;
+    el.src = d.id + '.png';
+    stage.appendChild(el);
+    const it = Object.assign({}, d, { el, clicking: false, cancel: null });
+    el.addEventListener('load', () => {
+      if (el.naturalWidth && !it.clicking && !el.style.aspectRatio) {
+        el.style.aspectRatio = el.naturalWidth + ' / ' + el.naturalHeight;
+      }
+    });
+    if (!d.fixed) { const pre = new Image(); pre.src = d.id + '1.png'; }
+    goHome(it);
+    return it;
+  });
+  const trash = items[0];
+
+  function goHome(it) {
+    const el = it.el;
+    el.style.left = it.x + '%';
+    el.style.top = it.y + '%';
+    el.style.width = `calc(var(--u) * ${it.w})`;
+    el.style.setProperty('--rot', it.rot + 'deg');
+    el.style.opacity = 1;
+    el.style.zIndex = it.fixed ? 40 : 20;
+  }
+
+  function revert(it) {
+    it.el.src = it.id + '.png';
+    it.clicking = false;
+    it.cancel = null;
+  }
+  function stopClick(it) {
+    if (it.cancel) it.cancel();
+    if (it.clicking) revert(it);
+  }
+  function clickItem(it) {
+    if (it.clicking) return;
+    it.clicking = true;
+    it.el.src = it.id + '1.png';
+    it.cancel = playSound(it.snd, () => revert(it));
+  }
+
+  items.forEach(it => {
+    if (it.fixed) return;
+    const el = it.el;
+    let st = null;
+
+    el.addEventListener('pointerdown', e => {
+      if (mode !== 'edit') return;
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      const r = el.getBoundingClientRect();
+      st = {
+        sx: e.clientX, sy: e.clientY,
+        ox: r.left + r.width / 2 - e.clientX,
+        oy: r.top + r.height / 2 - e.clientY,
+        moved: false, clone: null
+      };
+    });
+
+    el.addEventListener('pointermove', e => {
+      if (!st) return;
+      if (!st.moved) {
+        if (Math.hypot(e.clientX - st.sx, e.clientY - st.sy) < 6) return;
+        st.moved = true;
+        stopClick(it);
+        const c = new Image();
+        c.className = 'item';
+        c.alt = it.id;
+        c.draggable = false;
+        c.src = it.id + '.png';
+        c.style.left = el.style.left;
+        c.style.top = el.style.top;
+        c.style.width = el.style.width;
+        c.style.aspectRatio = el.style.aspectRatio;
+        c.style.setProperty('--rot', it.rot + 'deg');
+        c.style.zIndex = 50;
+        c.style.pointerEvents = 'none';
+        stage.appendChild(c);
+        st.clone = c;
+      }
+      const sr = stage.getBoundingClientRect();
+      st.clone.style.left = (e.clientX + st.ox - sr.left) + 'px';
+      st.clone.style.top = (e.clientY + st.oy - sr.top) + 'px';
+    });
+
+    const end = e => {
+      if (!st) return;
+      const s = st; st = null;
+      if (el.hasPointerCapture && el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      if (!s.moved) { clickItem(it); return; }
+      const br = bar.getBoundingClientRect();
+      const inBar = e.clientX >= br.left && e.clientX <= br.right &&
+                    e.clientY >= br.top - 10 && e.clientY <= br.bottom + 10;
+      if (inBar && order.length < MAX_BOX) dropInto(it, s.clone);
+      else flyBack(it, s.clone);
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  });
+
+  function flyBack(it, c) {
+    c.classList.add('anim');
+    c.style.left = it.x + '%';
+    c.style.top = it.y + '%';
+    setTimeout(() => c.remove(), 480);
+  }
+
+  function addPlus(animate = true) {
+    const s = document.createElement('div');
+    s.className = 'slot plus' + (animate ? ' pop' : '');
+    s.innerHTML = ICON_PLUS;
+    slotsEl.appendChild(s);
+    return s;
+  }
+
+  function dropInto(it, c) {
+    const popSound = new Audio('pop.mp3');
+    popSound.play().catch(() => {});
+
+    const slot = slotsEl.lastElementChild;
+    const sr = stage.getBoundingClientRect();
+    const pr = slot.getBoundingClientRect();
+    const nw = it.el.naturalWidth || 1, nh = it.el.naturalHeight || 1;
+    const fitW = Math.min(4.6, 5.4 * (nw / nh));
+    const myGen = gen;
+
+    order.push({ it, el: c, w: (it.orbitW !== undefined ? it.orbitW : it.w), snd: it.snd });
+    slot.classList.remove('plus');
+
+    if (order.length < MAX_BOX) addPlus(true);
+
+    c.classList.add('anim');
+    c.style.setProperty('--rot', '0deg');
+    c.style.width = `calc(var(--u) * ${fitW})`;
+    c.style.left = (pr.left + pr.width / 2 - sr.left) + 'px';
+    c.style.top = (pr.top + pr.height / 2 - sr.top) + 'px';
+
+    setTimeout(() => {
+      if (myGen !== gen) return;
+      const th = new Image();
+      th.src = it.id + '.png';
+      th.alt = it.id;
+      th.draggable = false;
+      th.style.width = `calc(var(--u) * ${fitW})`;
+      th.style.aspectRatio = nw + ' / ' + nh;
+      slot.innerHTML = '';
+      slot.appendChild(th);
+      c.style.display = 'none';
+      c.classList.remove('anim');
+    }, 480);
+  }
+
+  function setIcon(kind) {
+    act.innerHTML = kind === 'play' ? ICON_PLAY : ICON_RETRY;
+    act.setAttribute('aria-label', kind === 'play' ? '재생' : '리트라이');
+  }
+  setIcon('play');
+
+  act.addEventListener('click', () => {
+    if (mode === 'edit') startPlay();
+    else reset();
+  });
+
+  function startPlay() {
+    if (mode !== 'edit') return;
+    mode = 'play';
+    items.forEach(stopClick);
+
+    items.forEach(it => {
+      if (it.fixed) return;
+      it.el.classList.add('anim');
+      it.el.style.opacity = 0;
+      it.el.style.pointerEvents = 'none';
+    });
+    trash.el.classList.add('anim', 'slow');
+    trash.el.style.left = '50%';
+    trash.el.style.top = '44%';
+    trash.el.style.setProperty('--rot', '0deg');
+
+    const t0 = performance.now();
+    const th0 = order.map((_, i) => Math.PI / 2 + (2 * Math.PI * i) / order.length);
+    order.forEach(en => {
+      const el = en.el;
+      el.classList.remove('anim');
+      el.classList.add('fade');
+      el.style.display = '';
+      el.style.opacity = 0;
+      el.style.setProperty('--rot', '0deg');
+    });
+    place(0);
+    void stage.offsetWidth;
+    order.forEach(en => { en.el.style.opacity = 1; });
+
+    function place(t) {
+      const W = stage.clientWidth, H = stage.clientHeight, u = W / 100;
+      const cx = W * 0.5, cy = H * 0.44;
+      const rx = 30 * u, ry = 8 * u;
+      order.forEach((en, i) => {
+        const th = th0[i] + t * 0.6;
+        const s = Math.sin(th);
+        const sc = 1 + 0.12 * s;
+        const el = en.el;
+        el.style.left = (cx + rx * Math.cos(th)) + 'px';
+        el.style.top = (cy + ry * s + 3 * u + (en.it.id === 'foil' ? 2 * u : 0)) + 'px';
+        el.style.width = (en.w * sc * u) + 'px';
+
+        el.style.zIndex = s > 0
+          ? 41 + Math.round(s * 19)
+          : 20 + Math.round((s + 1) * 19);
+      });
+    }
+    const frame = now => {
+      if (mode !== 'play') return;
+      place((now - t0) / 1000);
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+
+    let idx = 0;
+    const step = () => {
+      if (mode !== 'play') return;
+
+      if (idx >= order.length) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+        return;
+      }
+
+      seqCancel = playSound(order[idx].snd, () => {
+        idx++;
+        step();
+      });
+    };
+    step();
+
+    setIcon('retry');
+  }
+
+  function reset() {
+    gen++;
+    mode = 'edit';
+    cancelAnimationFrame(raf);
+    if (seqCancel) { seqCancel(); seqCancel = null; }
+
+    order.forEach(en => en.el.remove());
+    order.length = 0;
+
+    items.forEach(it => {
+      const el = it.el;
+      if (it.cancel) it.cancel();
+      it.cancel = null;
+      it.clicking = false;
+      el.src = it.id + '.png';
+      if (it.fixed) {
+        el.classList.add('anim', 'slow');
+      } else {
+        el.classList.remove('anim', 'slow', 'fade');
+        el.style.pointerEvents = '';
+      }
+      goHome(it);
+    });
+
+    slotsEl.innerHTML = '';
+    addPlus(false);
+    setIcon('play');
+
+    setTimeout(() => items.forEach(it => it.el.classList.remove('anim', 'slow')), 950);
+  }
+
+  addPlus(false);
+})();
+</script>
+</body>
+</html>
